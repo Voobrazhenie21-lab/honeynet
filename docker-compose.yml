@@ -1,0 +1,13 @@
+services:
+  honeynet:
+    build: .
+    container_name: honeynet-soc
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # HTTP Honeypot
+      - "2222:2222" # SSH Honeypot
+      - "8888:8888" # SOC Web Dashboard
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
