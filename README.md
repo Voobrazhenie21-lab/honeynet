@@ -94,7 +94,8 @@ uv pip install -e ".[ssh,test]"
 
 ```bash
 # Start all honeypot decoys and web dashboard
-python -m honeynet.cli run
+python -m honeynet run
+# or: honeynet run
 ```
 
 ```text

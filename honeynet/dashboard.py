@@ -8,10 +8,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import urllib.parse
 from typing import Any
 
 from honeynet.core import EventLogger
+
+HTTP_STATUS_PHRASES: dict[int, str] = {
+    200: "OK",
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    500: "Internal Server Error",
+}
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -141,6 +151,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     async function updateDashboard() {
       try {
         const [statsRes, eventsRes] = await Promise.all([
@@ -158,21 +178,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (eventsRes && eventsRes.length > 0) {
           tbody.innerHTML = eventsRes.slice(-15).reverse().map(ev => {
             const intel = ev.intel || {};
-            const score = intel.score || 0;
-            const sev = intel.severity || 'LOW';
+            const score = Number(intel.score) || 0;
+            const sev = escapeHtml(intel.severity || 'LOW');
             let badgeClass = 'badge-low';
             if (score >= 75) badgeClass = 'badge-crit';
             else if (score >= 50) badgeClass = 'badge-high';
             else if (score >= 25) badgeClass = 'badge-med';
 
-            const detail = ev.detail || ev.path || ev.command || '';
-            const t = (ev.ts || '').split('T')[1]?.split('+')[0] || ev.ts;
+            const rawDetail = ev.detail || ev.path || ev.command || '';
+            const safeDetail = escapeHtml(rawDetail);
+            const safeIp = escapeHtml(ev.src_ip || 'unknown');
+            const safeProto = escapeHtml((ev.proto || '').toUpperCase());
+            const safeT = escapeHtml((ev.ts || '').split('T')[1]?.split('+')[0] || ev.ts || '');
+
             return `<tr>
-              <td style="color:var(--mut);">${t}</td>
-              <td><span style="color:var(--acc2); font-weight:700;">${(ev.proto || '').toUpperCase()}</span></td>
-              <td><code>${ev.src_ip}</code></td>
+              <td style="color:var(--mut);">${safeT}</td>
+              <td><span style="color:var(--acc2); font-weight:700;">${safeProto}</span></td>
+              <td><code>${safeIp}</code></td>
               <td><span class="badge ${badgeClass}">${score} [${sev}]</span></td>
-              <td style="color:#fff;">${detail}</td>
+              <td style="color:#fff;">${safeDetail}</td>
             </tr>`;
           }).join('');
         }
@@ -182,8 +206,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (statsRes.top_creds && statsRes.top_creds.length > 0) {
           credsBox.innerHTML = statsRes.top_creds.map(c => `
             <div class="cred-item">
-              <span class="cred-user">${c.user}</span>
-              <span class="cred-pass">${c.pass}</span>
+              <span class="cred-user">${escapeHtml(c.user || '')}</span>
+              <span class="cred-pass">${escapeHtml(c.pass || '')}</span>
             </div>
           `).join('');
         }
@@ -213,7 +237,8 @@ class DashboardServer:
         self.config = config
         self.logger = logger
         dash_cfg = config.get("dashboard", {})
-        self.host = dash_cfg.get("host", "127.0.0.1")
+        default_host = os.environ.get("HONEYNET_DASHBOARD_HOST") or dash_cfg.get("host", "127.0.0.1")
+        self.host = default_host
         self.port = dash_cfg.get("port", 8888)
         self.server: asyncio.Server | None = None
 
@@ -269,8 +294,9 @@ class DashboardServer:
 
     def send_response(self, writer: asyncio.StreamWriter, status: int, ctype: str, body: str) -> None:
         b_bytes = body.encode("utf-8")
+        phrase = HTTP_STATUS_PHRASES.get(status, "OK" if status < 400 else "Error")
         header = (
-            f"HTTP/1.1 {status} OK\r\n"
+            f"HTTP/1.1 {status} {phrase}\r\n"
             f"Content-Type: {ctype}\r\n"
             f"Content-Length: {len(b_bytes)}\r\n"
             f"Access-Control-Allow-Origin: *\r\n"

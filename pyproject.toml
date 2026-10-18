@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "honeynet-soc"
-version = "1.0.0"
+version = "1.0.1"
 description = "Multi-Vector Low-Interaction Honeypot & SOC Telemetry Engine with Wazuh CDB Integration"
 readme = "README.md"
 requires-python = ">=3.10"

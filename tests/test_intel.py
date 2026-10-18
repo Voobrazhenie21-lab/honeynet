@@ -1,5 +1,13 @@
 """Unit tests for honeynet.intel threat intelligence engine."""
-from honeynet.intel import classify_ip, shannon_entropy, assess_event
+from unittest.mock import patch, MagicMock
+from honeynet.intel import (
+    classify_ip,
+    shannon_entropy,
+    assess_event,
+    run_threatpulse_enrichment,
+    query_abuseipdb,
+    _ABUSEIPDB_CACHE,
+)
 
 
 def test_classify_ip():
@@ -54,3 +62,61 @@ def test_assess_event_bogon_score_damping():
     )
     assert intel["score"] <= 45
     assert intel["ip_meta"]["is_bogon"] is True
+
+
+def test_assess_event_abuseipdb_enrichment():
+    _ABUSEIPDB_CACHE.clear()
+    fake_abuse_data = {
+        "ipAddress": "185.220.101.5",
+        "abuseConfidenceScore": 95,
+        "countryCode": "DE",
+        "totalReports": 412,
+    }
+
+    config = {
+        "intel": {
+            "abuseipdb_api_key": "test_fake_api_key",
+        }
+    }
+
+    with patch("honeynet.intel.query_abuseipdb", return_value=fake_abuse_data) as mock_query:
+        intel = assess_event(
+            proto="http",
+            src_ip="185.220.101.5",
+            kind="http_request",
+            path="/robots.txt",
+            config=config,
+        )
+        assert mock_query.called
+        assert intel["score"] >= 95
+        assert intel["severity"] == "CRITICAL"
+        assert "abuseipdb:score_95" in intel["tags"]
+        assert intel["abuseipdb"]["abuseConfidenceScore"] == 95
+
+        # Verify caching: second call for same IP should not invoke query_abuseipdb again
+        mock_query.reset_mock()
+        intel2 = assess_event(
+            proto="http",
+            src_ip="185.220.101.5",
+            kind="http_request",
+            path="/robots.txt",
+            config=config,
+        )
+        assert not mock_query.called
+        assert intel2["score"] >= 95
+
+
+def test_run_threatpulse_enrichment_uses_shlex():
+    with patch("subprocess.run") as mock_run:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = '{"threat_score": 85, "verdict": "malicious"}'
+        mock_run.return_value = mock_proc
+
+        res = run_threatpulse_enrichment("185.220.101.5", "threatpulse check {ip}")
+        assert res == {"threat_score": 85, "verdict": "malicious"}
+        # Ensure subprocess.run was called with a list of args (shlex.split), NOT shell=True
+        call_args, call_kwargs = mock_run.call_args
+        assert isinstance(call_args[0], list)
+        assert call_args[0] == ["threatpulse", "check", "185.220.101.5"]
+        assert "shell" not in call_kwargs or call_kwargs["shell"] is False

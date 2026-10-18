@@ -7,11 +7,21 @@ Zero-dependency: built on stdlib asyncio.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import urllib.parse
 from typing import Any
 
 from honeynet.core import Event, EventLogger, HTTP_REQUEST, AUTH_ATTEMPT, now_iso
 from honeynet.intel import assess_event
+
+HTTP_STATUS_PHRASES: dict[int, str] = {
+    200: "OK",
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    500: "Internal Server Error",
+}
 
 DECOY_LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -116,9 +126,15 @@ class HttpHoneypotServer:
                         except ValueError:
                             content_length = 0
 
-            # Inspect X-Forwarded-For if present
+            # Inspect X-Forwarded-For if present (strictly validated)
             if "x-forwarded-for" in headers:
-                src_ip = headers["x-forwarded-for"].split(",")[0].strip()
+                raw_ip = headers["x-forwarded-for"].split(",")[0].strip()
+                try:
+                    ipaddress.ip_address(raw_ip)
+                    src_ip = raw_ip
+                except ValueError:
+                    # Ignore malformed or exploit payload headers, retain real socket IP
+                    pass
 
             # Read body for POST credential attempts
             body_data = ""
@@ -167,8 +183,9 @@ class HttpHoneypotServer:
 
             # Send HTTP response
             resp_bytes = response_body.encode("utf-8")
+            phrase = HTTP_STATUS_PHRASES.get(status_code, "OK" if status_code < 400 else "Error")
             header_lines = [
-                f"HTTP/1.1 {status_code} OK" if status_code == 200 else f"HTTP/1.1 {status_code}",
+                f"HTTP/1.1 {status_code} {phrase}",
                 f"Server: {self.server_header}",
                 f"Content-Type: {content_type}",
                 f"Content-Length: {len(resp_bytes)}",

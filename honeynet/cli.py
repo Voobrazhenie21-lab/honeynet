@@ -62,8 +62,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     # SSH Honeypot
     if config.get("ssh", {}).get("enabled", True) and not args.no_ssh:
         ssh_server = SshHoneypotServer(config, logger)
-        ssh_server.start()
-        print(f"[+] SSH Decoy active on {ssh_server.host}:{ssh_server.port}")
+        if ssh_server.start():
+            print(f"[+] SSH Decoy active on {ssh_server.host}:{ssh_server.port}")
+        else:
+            print(f"[!] SSH Decoy disabled: paramiko is not installed. Run 'pip install \"honeynet-soc[ssh]\"' to enable SSH emulation.")
 
     print("\n[+] HoneyNet daemon running. Press Ctrl+C to terminate gracefully.\n")
 

@@ -1,0 +1,40 @@
+{
+  "http": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8080,
+    "server_header": "nginx/1.24.0 (Ubuntu)",
+    "site_title": "ACME Corporation — Internal Portal"
+  },
+  "ssh": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 2222,
+    "banner": "OpenSSH_8.9p1 Ubuntu-3ubuntu0.6",
+    "hostname": "prod-acme-01",
+    "host_key": "data/ssh_host_key.pem",
+    "max_sessions": 64
+  },
+  "dashboard": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8888
+  },
+  "log": {
+    "path": "data/honeynet.jsonl",
+    "rotate_mb": 10
+  },
+  "intel": {
+    "abuseipdb_api_key": "",
+    "threatpulse_cmd": "",
+    "min_score_alert": 40
+  },
+  "alerts": {
+    "telegram": {
+      "bot_token": "",
+      "chat_id": ""
+    },
+    "webhook_url": "",
+    "rate_limit_seconds": 30
+  }
+}

@@ -9,11 +9,16 @@ from __future__ import annotations
 import ipaddress
 import json
 import math
+import os
 import re
+import shlex
 import subprocess
+import time
 import urllib.request
 import urllib.error
 from typing import Any
+
+_ABUSEIPDB_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
 
 # MITRE ATT&CK Matrix Mapping
 MITRE_MAPPING = {
@@ -190,6 +195,36 @@ def assess_event(
         "wazuh_cdb": wazuh_cdb,
     }
 
+    # Optional AbuseIPDB API enrichment (cached)
+    if config:
+        abuse_key = config.get("intel", {}).get("abuseipdb_api_key", "").strip()
+        if abuse_key and not ip_meta.get("is_bogon"):
+            now_mono = time.monotonic()
+            cached = _ABUSEIPDB_CACHE.get(src_ip)
+            if cached and (now_mono - cached[0] < 3600):
+                abuse_data = cached[1]
+            else:
+                abuse_data = query_abuseipdb(src_ip, abuse_key)
+                _ABUSEIPDB_CACHE[src_ip] = (now_mono, abuse_data)
+
+            if abuse_data:
+                intel_result["abuseipdb"] = abuse_data
+                conf_score = int(abuse_data.get("abuseConfidenceScore", 0))
+                if conf_score > 0:
+                    new_score = min(100, max(intel_result["score"], conf_score))
+                    intel_result["score"] = new_score
+                    tags.append(f"abuseipdb:score_{conf_score}")
+                    if new_score >= 75:
+                        severity = "CRITICAL"
+                    elif new_score >= 50:
+                        severity = "HIGH"
+                    elif new_score >= 25:
+                        severity = "MEDIUM"
+                    else:
+                        severity = "LOW"
+                    intel_result["severity"] = severity
+                    intel_result["wazuh_cdb"] = f"{src_ip}:{severity.lower()}:{primary_mitre}:block"
+
     # Optional ThreatPulse CLI enrichment
     if config:
         tp_cmd = config.get("intel", {}).get("threatpulse_cmd")
@@ -198,8 +233,18 @@ def assess_event(
             if tp_data:
                 intel_result["threatpulse"] = tp_data
                 if "threat_score" in tp_data:
-                    # Blend ThreatPulse external score
-                    intel_result["score"] = max(final_score, int(tp_data["threat_score"]))
+                    new_score = min(100, max(intel_result["score"], int(tp_data["threat_score"])))
+                    intel_result["score"] = new_score
+                    if new_score >= 75:
+                        severity = "CRITICAL"
+                    elif new_score >= 50:
+                        severity = "HIGH"
+                    elif new_score >= 25:
+                        severity = "MEDIUM"
+                    else:
+                        severity = "LOW"
+                    intel_result["severity"] = severity
+                    intel_result["wazuh_cdb"] = f"{src_ip}:{severity.lower()}:{primary_mitre}:block"
 
     return intel_result
 
@@ -207,10 +252,11 @@ def assess_event(
 def run_threatpulse_enrichment(ip: str, cmd_template: str) -> dict[str, Any] | None:
     """Execute local ThreatPulse CLI for IOC enrichment."""
     try:
-        cmd = cmd_template.replace("{ip}", ip)
+        cmd_str = cmd_template.replace("{ip}", ip)
         if "{ip}" not in cmd_template:
-            cmd = f"{cmd_template} {ip}"
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+            cmd_str = f"{cmd_template} {ip}"
+        cmd_args = shlex.split(cmd_str, posix=(os.name != "nt"))
+        proc = subprocess.run(cmd_args, capture_output=True, text=True, timeout=3)
         if proc.returncode == 0 and proc.stdout:
             try:
                 return json.loads(proc.stdout)

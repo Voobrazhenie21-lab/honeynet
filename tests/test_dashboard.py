@@ -1,8 +1,8 @@
-"""Unit tests for honeynet.dashboard API and rule generators."""
-import tempfile
+"""Unit tests for honeynet.dashboard API, rule generators, and XSS protection."""
 import os
+import tempfile
 from honeynet.core import Event, EventLogger
-from honeynet.dashboard import DashboardServer
+from honeynet.dashboard import DashboardServer, DASHBOARD_HTML, HTTP_STATUS_PHRASES
 from honeynet.intel import assess_event
 
 
@@ -51,3 +51,37 @@ def test_dashboard_compute_stats_and_rules():
     finally:
         if os.path.exists(path):
             os.remove(path)
+
+
+def test_dashboard_xss_protection_in_template():
+    """Verify that the dashboard template contains HTML sanitization logic for stored events."""
+    assert "function escapeHtml" in DASHBOARD_HTML
+    assert ".replace(/&/g, '&amp;')" in DASHBOARD_HTML
+    assert ".replace(/</g, '&lt;')" in DASHBOARD_HTML
+    assert ".replace(/>/g, '&gt;')" in DASHBOARD_HTML
+    assert "escapeHtml(c.user" in DASHBOARD_HTML
+    assert "escapeHtml(c.pass" in DASHBOARD_HTML
+    assert "escapeHtml(rawDetail)" in DASHBOARD_HTML
+    assert "escapeHtml(ev.src_ip" in DASHBOARD_HTML
+
+
+def test_dashboard_host_override_via_env():
+    """Verify that HONEYNET_DASHBOARD_HOST environment variable overrides dashboard host."""
+    old_env = os.environ.get("HONEYNET_DASHBOARD_HOST")
+    try:
+        os.environ["HONEYNET_DASHBOARD_HOST"] = "0.0.0.0"
+        server = DashboardServer({}, None)  # type: ignore
+        assert server.host == "0.0.0.0"
+    finally:
+        if old_env is None:
+            os.environ.pop("HONEYNET_DASHBOARD_HOST", None)
+        else:
+            os.environ["HONEYNET_DASHBOARD_HOST"] = old_env
+
+
+def test_dashboard_http_status_phrases():
+    """Verify that HTTP status codes are mapped to standard reason phrases."""
+    assert HTTP_STATUS_PHRASES[200] == "OK"
+    assert HTTP_STATUS_PHRASES[404] == "Not Found"
+    assert HTTP_STATUS_PHRASES[401] == "Unauthorized"
+    assert HTTP_STATUS_PHRASES[403] == "Forbidden"

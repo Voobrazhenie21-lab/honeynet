@@ -196,27 +196,36 @@ class SshHoneypotServer:
             except Exception:
                 pass
 
-    def start(self) -> None:
+    def is_available(self) -> bool:
+        """Check whether paramiko is installed and SSH honeypot is usable."""
+        return PARAMIKO_AVAILABLE
+
+    def start(self) -> bool:
+        """Start SSH server listening on host:port. Returns True if started, False otherwise."""
         if not PARAMIKO_AVAILABLE:
-            return
-        self.host_key = self.ensure_host_key()
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((self.host, self.port))
-        self.sock.listen(100)
-        self.running = True
+            return False
+        try:
+            self.host_key = self.ensure_host_key()
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.bind((self.host, self.port))
+            self.sock.listen(100)
+            self.running = True
 
-        def loop() -> None:
-            while self.running:
-                try:
-                    client_sock, addr = self.sock.accept()
-                    t = threading.Thread(target=self.handle_client, args=(client_sock, addr), daemon=True)
-                    t.start()
-                except OSError:
-                    break
+            def loop() -> None:
+                while self.running:
+                    try:
+                        client_sock, addr = self.sock.accept()
+                        t = threading.Thread(target=self.handle_client, args=(client_sock, addr), daemon=True)
+                        t.start()
+                    except OSError:
+                        break
 
-        thread = threading.Thread(target=loop, daemon=True)
-        thread.start()
+            thread = threading.Thread(target=loop, daemon=True)
+            thread.start()
+            return True
+        except OSError:
+            return False
 
     def stop(self) -> None:
         self.running = False

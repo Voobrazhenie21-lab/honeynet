@@ -84,3 +84,31 @@ def test_load_config_custom_merge():
     finally:
         if os.path.exists(cfg_path):
             os.remove(cfg_path)
+
+
+def test_event_to_dict_deduplicates_tags():
+    ev = Event(
+        ts="2026-10-17T18:00:00",
+        proto="http",
+        src_ip="1.2.3.4",
+        kind="http_request",
+        tags=["protocol:http", "probe:env"],
+        intel={"score": 80, "tags": ["protocol:http", "probe:env"]}
+    )
+    d = ev.to_dict()
+    assert d["tags"] == ["protocol:http", "probe:env"]
+    assert "tags" not in d["intel"]
+
+
+def test_load_config_env_dashboard_host():
+    old = os.environ.get("HONEYNET_DASHBOARD_HOST")
+    try:
+        os.environ["HONEYNET_DASHBOARD_HOST"] = "0.0.0.0"
+        cfg = load_config()
+        assert cfg["dashboard"]["host"] == "0.0.0.0"
+    finally:
+        if old is None:
+            os.environ.pop("HONEYNET_DASHBOARD_HOST", None)
+        else:
+            os.environ["HONEYNET_DASHBOARD_HOST"] = old
+

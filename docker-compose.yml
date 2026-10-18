@@ -11,3 +11,4 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+      - HONEYNET_DASHBOARD_HOST=0.0.0.0

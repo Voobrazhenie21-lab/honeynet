@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Event kinds
 AUTH_ATTEMPT = "auth_attempt"
@@ -46,10 +46,14 @@ class Event:
     intel: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Drop empty fields to keep log lines compact."""
+        """Drop empty fields to keep log lines compact and avoid duplicate tags."""
+        d = asdict(self)
+        if "intel" in d and isinstance(d["intel"], dict) and "tags" in d["intel"]:
+            if d.get("tags"):
+                d["intel"] = {k: v for k, v in d["intel"].items() if k != "tags"}
         return {
             k: v
-            for k, v in asdict(self).items()
+            for k, v in d.items()
             if v not in ("", None) and v != [] and v != {}
         }
 
@@ -155,5 +159,12 @@ def load_config(path: str | None = None) -> dict[str, Any]:
     if path:
         with open(path, "r", encoding="utf-8") as fh:
             user_cfg = json.load(fh)
-        return _deep_merge(DEFAULT_CONFIG, user_cfg)
-    return copy.deepcopy(DEFAULT_CONFIG)
+        cfg = _deep_merge(DEFAULT_CONFIG, user_cfg)
+    else:
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+
+    env_dash_host = os.environ.get("HONEYNET_DASHBOARD_HOST")
+    if env_dash_host:
+        cfg.setdefault("dashboard", {})["host"] = env_dash_host
+
+    return cfg

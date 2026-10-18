@@ -1,7 +1,7 @@
-"""Unit tests for honeynet.http_pot server routing."""
+"""Unit tests for honeynet.http_pot server routing and headers."""
 import pytest
 from honeynet.core import EventLogger
-from honeynet.http_pot import HttpHoneypotServer
+from honeynet.http_pot import HttpHoneypotServer, HTTP_STATUS_PHRASES
 
 
 def test_http_pot_route_request():
@@ -37,3 +37,11 @@ def test_http_pot_route_request():
     # Default 404
     code, ctype, body = server.route_request("/random_path", "GET", "", "")
     assert code == 404
+
+
+def test_http_pot_status_phrases():
+    """Verify HTTP reason phrases are properly declared."""
+    assert HTTP_STATUS_PHRASES[200] == "OK"
+    assert HTTP_STATUS_PHRASES[401] == "Unauthorized"
+    assert HTTP_STATUS_PHRASES[403] == "Forbidden"
+    assert HTTP_STATUS_PHRASES[404] == "Not Found"
